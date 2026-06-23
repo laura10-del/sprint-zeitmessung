@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Sprint-Zeitmessung</title>
+<style>
+  :root {
+    --bg: #0c0f0a;
+    --panel: #151a12;
+    --line: #2b3324;
+    --text: #eef2e6;
+    --muted: #8a9a7c;
+    --accent: #c9ff4d;
+    --accent-dim: #6b7a3d;
+    --stop: #ff5a4e;
+    --mark: #ffb648;
+    --mono: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 14px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 4px 2px 0;
+  }
+
+  header h1 {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 0;
+  }
+
+  header .eyebrow {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  /* --- Video stage --- */
+  .stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+
+  .stage video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    background: #000;
+  }
+
+  .stage.mirror video#live {
+    transform: scaleX(-1);
+  }
+
+  .clock-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-family: var(--mono);
+    font-size: clamp(20px, 6vw, 30px);
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(0,0,0,0.55);
+    padding: 4px 10px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .rec-dot {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--stop);
+    z-index: 3;
+  }
+
+  .rec-dot .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--stop);
+    animation: pulse 1s infinite;
+  }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  .empty-stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 30px;
+    line-height: 1.5;
+  }
+
+  /* --- Marks bar over scrubber --- */
+  .mark-rail {
+    position: relative;
+    height: 0;
+  }
+
+  .mark-tick {
+    position: absolute;
+    bottom: 0;
+    width: 2px;
+    height: 10px;
+    background: var(--mark);
+    transform: translateX(-1px);
+  }
+
+  /* --- Controls --- */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .controls.recording {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  button {
+    font-family: inherit;
+    border: none;
+    border-radius: 10px;
+    padding: 16px 10px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: transform 0.08s ease, opacity 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+  .btn-start {
+    background: var(--accent);
+    color: #131a0a;
+    grid-column: 1 / -1;
+  }
+
+  .btn-mark {
+    background: var(--mark);
+    color: #2a1700;
+  }
+
+  .btn-stop {
+    background: var(--stop);
+    color: #2a0a06;
+  }
+
+  .btn-secondary {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent-dim); }
+
+  /* --- Marks list --- */
+  .marks-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: none;
+  }
+
+  .marks-panel.visible { display: block; }
+
+  .marks-panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+
+  .marks-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .marks-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255,182,72,0.08);
+    border: 1px solid rgba(255,182,72,0.25);
+    border-radius: 7px;
+    padding: 8px 10px;
+  }
+
+  .marks-list .label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .marks-list .time {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--mark);
+    font-weight: 700;
+  }
+
+  .marks-list .jump {
+    background: transparent;
+    border: 1px solid var(--mark);
+    color: var(--mark);
+    padding: 4px 9px;
+    font-size: 11px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .marks-empty {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    padding: 6px 0;
+  }
+
+  /* --- Playback controls --- */
+  .playback-controls {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .playback-controls.visible { display: flex; }
+
+  .scrub-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .scrub-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+
+  .time-readout {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent);
+    min-width: 88px;
+    text-align: right;
+  }
+
+  .frame-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.4fr 1fr 1fr;
+    gap: 8px;
+  }
+
+  .frame-row button {
+    padding: 12px 4px;
+    font-size: 13px;
+  }
+
+  .btn-playpause {
+    background: var(--accent);
+    color: #131a0a;
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.5;
+    padding: 0 8px;
+  }
+
+  footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 6px 0 0;
+  }
+
+  /* Hidden capture canvas for stamping */
+  canvas#stampCanvas { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div>
+      <div class="eyebrow">Sprint-Zeitmessung</div>
+      <h1>Kamera-Stoppuhr</h1>
+    </div>
+  </header>
+
+  <div class="stage mirror" id="stage">
+    <video id="live" autoplay playsinline muted></video>
+    <video id="playback" playsinline style="display:none;"></video>
+    <div class="clock-overlay" id="clockOverlay" style="display:none;">00:00.000</div>
+    <div class="rec-dot" id="recDot" style="display:none;"><span class="dot"></span>REC</div>
+    <div class="empty-stage" id="emptyMsg">Kamera wird gestartet …</div>
+  </div>
+
+  <div class="controls" id="liveControls">
+    <button class="btn-start" id="startBtn">Start</button>
+  </div>
+
+  <div class="controls" id="recordingControls" style="display:none; grid-template-columns: 1fr 1fr;">
+    <button class="btn-mark" id="markBtn">⚑ Marke setzen</button>
+    <button class="btn-stop" id="stopBtn">Fertig / Stopp</button>
+  </div>
+
+  <div class="playback-controls" id="playbackControls">
+    <div class="scrub-row">
+      <input type="range" id="scrubber" min="0" max="1000" value="0" step="1">
+      <div class="time-readout" id="timeReadout">00:00.000</div>
+    </div>
+    <div class="frame-row">
+      <button class="btn-secondary" id="backBigBtn">⏪ −10</button>
+      <button class="btn-secondary" id="backBtn">◁ Frame</button>
+      <button class="btn-playpause" id="playPauseBtn">▶ Abspielen</button>
+      <button class="btn-secondary" id="fwdBtn">Frame ▷</button>
+      <button class="btn-secondary" id="fwdBigBtn">+10 ⏩</button>
+    </div>
+    <div class="hint" id="frameHint">Frame-Schritt richtet sich nach der Aufnahmerate deiner Kamera (meist ~33 ms bei 30 fps).</div>
+  </div>
+
+  <div class="marks-panel" id="marksPanel">
+    <h2>Gesetzte Marken</h2>
+    <ul class="marks-list" id="marksList"></ul>
+  </div>
+
+  <div class="controls" id="resultControls" style="display:none; grid-template-columns: 1fr 1fr;">
+    <button class="btn-secondary" id="downloadBtn">⬇ Video herunterladen</button>
+    <button class="btn-secondary" id="restartBtn">↺ Neue Aufnahme</button>
+  </div>
+
+  <footer>Zeitstempel wird ins Video eingebrannt · läuft komplett lokal im Browser</footer>
+</div>
+
+<canvas id="stampCanvas"></canvas>
+
+<script>
+(function () {
+  const liveVideo = document.getElementById('live');
+  const playbackVideo = document.getElementById('playback');
+  const stage = document.getElementById('stage');
+  const clockOverlay = document.getElementById('clockOverlay');
+  const recDot = document.getElementById('recDot');
+  const emptyMsg = document.getElementById('emptyMsg');
+
+  const startBtn = document.getElementById('startBtn');
+  const markBtn = document.getElementById('markBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const restartBtn = document.getElementById('restartBtn');
+
+  const liveControls = document.getElementById('liveControls');
+  const recordingControls = document.getElementById('recordingControls');
+  const resultControls = document.getElementById('resultControls');
+  const playbackControls = document.getElementById('playbackControls');
+  const marksPanel = document.getElementById('marksPanel');
+  const marksList = document.getElementById('marksList');
+
+  const scrubber = document.getElementById('scrubber');
+  const timeReadout = document.getElementById('timeReadout');
+  const playPauseBtn = document.getElementById('playPauseBtn');
+  const backBtn = document.getElementById('backBtn');
+  const fwdBtn = document.getElementById('fwdBtn');
+  const backBigBtn = document.getElementById('backBigBtn');
+  const fwdBigBtn = document.getElementById('fwdBigBtn');
+  const frameHint = document.getElementById('frameHint');
+
+  const stampCanvas = document.getElementById('stampCanvas');
+  const stampCtx = stampCanvas.getContext('2d');
+
+  let stream = null;
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordStartTime = 0;
+  let clockInterval = null;
+  let marks = []; // {label, ms}
+  let recordedBlobUrl = null;
+  let estimatedFps = 30;
+  let frameStepSec = 1 / 30;
+  let drawLoopId = null;
+
+  // ---------- Camera setup ----------
+  async function initCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false
+      });
+      liveVideo.srcObject = stream;
+      emptyMsg.style.display = 'none';
+      // front camera mirrors visually; back camera shouldn't mirror.
+      const track = stream.getVideoTracks()[0];
+      const facing = track.getSettings ? track.getSettings().facingMode : null;
+      stage.classList.toggle('mirror', facing === 'user');
+    } catch (err) {
+      emptyMsg.textContent = 'Kein Kamerazugriff möglich: ' + err.message + ' — bitte Berechtigung erlauben und Seite neu laden.';
+      startBtn.disabled = true;
+    }
+  }
+
+  function formatTime(ms) {
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    const msec = Math.floor(ms % 1000);
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(msec).padStart(3, '0');
+  }
+
+  // ---------- Recording with burned-in timestamp ----------
+  // We draw the live video + clock text onto a canvas every frame,
+  // and record THAT canvas's stream. This burns the timestamp into the video itself.
+  let canvasStream = null;
+  let drawCanvas = null;
+  let drawCtx = null;
+
+  function startDrawLoop() {
+    drawCanvas = document.createElement('canvas');
+    drawCanvas.width = 1280;
+    drawCanvas.height = 960;
+    drawCtx = drawCanvas.getContext('2d');
+
+    function draw() {
+      if (!recordStartTime) return;
+      const vw = liveVideo.videoWidth || 1280;
+      const vh = liveVideo.videoHeight || 960;
+      if (drawCanvas.width !== vw) drawCanvas.width = vw;
+      if (drawCanvas.height !== vh) drawCanvas.height = vh;
+
+      drawCtx.save();
+      if (stage.classList.contains('mirror')) {
+        drawCtx.translate(vw, 0);
+        drawCtx.scale(-1, 1);
+      }
+      drawCtx.drawImage(liveVideo, 0, 0, vw, vh);
+      drawCtx.restore();
+
+      const elapsed = performance.now() - recordStartTime;
+      const text = formatTime(elapsed);
+      const fontSize = Math.max(28, Math.floor(vw * 0.05));
+      drawCtx.font = 'bold ' + fontSize + 'px monospace';
+      const padding = fontSize * 0.4;
+      const textWidth = drawCtx.measureText(text).width;
+
+      drawCtx.fillStyle = 'rgba(0,0,0,0.55)';
+      drawCtx.fillRect(14, 14, textWidth + padding * 2, fontSize + padding * 1.2);
+
+      drawCtx.fillStyle = '#c9ff4d';
+      drawCtx.textBaseline = 'top';
+      drawCtx.fillText(text, 14 + padding, 14 + padding * 0.5);
+
+      drawLoopId = requestAnimationFrame(draw);
+    }
+    drawLoopId = requestAnimationFrame(draw);
+    canvasStream = drawCanvas.captureStream(30);
+  }
+
+  function stopDrawLoop() {
+    if (drawLoopId) cancelAnimationFrame(drawLoopId);
+    drawLoopId = null;
+  }
+
+  function pickMimeType() {
+    const candidates = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4'
+    ];
+    for (const c of candidates) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  function startRecording() {
+    marks = [];
+    recordedChunks = [];
+    clockOverlay.style.display = 'block';
+    recDot.style.display = 'flex';
+
+    startDrawLoop();
+
+    const mimeType = pickMimeType();
+    const options = mimeType ? { mimeType } : {};
+    try {
+      mediaRecorder = new MediaRecorder(canvasStream, options);
+    } catch (e) {
+      mediaRecorder = new MediaRecorder(canvasStream);
+    }
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = onRecordingStopped;
+
+    recordStartTime = performance.now();
+    mediaRecorder.start(100);
+
+    clockInterval = setInterval(() => {
+      const elapsed = performance.now() - recordStartTime;
+      clockOverlay.textContent = formatTime(elapsed);
+    }, 31);
+
+    liveControls.style.display = 'none';
+    recordingControls.style.display = 'grid';
+  }
+
+  function addMark() {
+    if (!recordStartTime) return;
+    const elapsed = performance.now() - recordStartTime;
+    marks.push({ label: 'Marke ' + (marks.length + 1), ms: elapsed });
+    flashMark();
+  }
+
+  function flashMark() {
+    clockOverlay.style.color = '#ffb648';
+    setTimeout(() => { clockOverlay.style.color = '#c9ff4d'; }, 180);
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    clearInterval(clockInterval);
+    stopDrawLoop();
+    recDot.style.display = 'none';
+    recordingControls.style.display = 'none';
+  }
+
+  function onRecordingStopped() {
+    const mimeType = mediaRecorder.mimeType || 'video/webm';
+    const blob = new Blob(recordedChunks, { type: mimeType });
+    recordedBlobUrl = URL.createObjectURL(blob);
+
+    liveVideo.style.display = 'none';
+    clockOverlay.style.display = 'none';
+    playbackVideo.style.display = 'block';
+    playbackVideo.src = recordedBlobUrl;
+    playbackVideo.controls = false;
+    playbackVideo.muted = false;
+    stage.classList.remove('mirror');
+
+    playbackVideo.onloadedmetadata = () => {
+      scrubber.max = Math.floor(playbackVideo.duration * 1000);
+      renderMarksOnScrubber();
+      renderMarksList();
+      updateTimeReadout();
+    };
+
+    resultControls.style.display = 'grid';
+    playbackControls.classList.add('visible');
+    marksPanel.classList.add('visible');
+  }
+
+  // ---------- Marks UI ----------
+  function renderMarksList() {
+    marksList.innerHTML = '';
+    if (marks.length === 0) {
+      const li = document.createElement('div');
+      li.className = 'marks-empty';
+      li.textContent = 'Keine Marken gesetzt.';
+      marksList.appendChild(li);
+      return;
+    }
+    marks.forEach((m, i) => {
+      const li = document.createElement('li');
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'label';
+      labelSpan.textContent = m.label;
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'time';
+      timeSpan.textContent = formatTime(m.ms);
+
+      const jumpBtn = document.createElement('button');
+      jumpBtn.className = 'jump';
+      jumpBtn.textContent = 'Springen';
+      jumpBtn.addEventListener('click', () => {
+        playbackVideo.currentTime = m.ms / 1000;
+        playbackVideo.pause();
+        updatePlayPauseUI(false);
+      });
+
+      li.appendChild(labelSpan);
+      const right = document.createElement('div');
+      right.style.display = 'flex';
+      right.style.gap = '8px';
+      right.style.alignItems = 'center';
+      right.appendChild(timeSpan);
+      right.appendChild(jumpBtn);
+      li.appendChild(right);
+      marksList.appendChild(li);
+    });
+  }
+
+  function renderMarksOnScrubber() {
+    document.querySelectorAll('.mark-tick').forEach(el => el.remove());
+    if (!playbackVideo.duration) return;
+    const rail = document.createElement('div');
+    rail.className = 'mark-rail';
+    marks.forEach(m => {
+      const pct = (m.ms / 1000) / playbackVideo.duration;
+      const tick = document.createElement('div');
+      tick.className = 'mark-tick';
+      tick.style.left = (pct * 100) + '%';
+      rail.appendChild(tick);
+    });
+    scrubber.parentNode.insertBefore(rail, scrubber.nextSibling);
+  }
+
+  // ---------- Playback controls ----------
+  function updateTimeReadout() {
+    const ms = playbackVideo.currentTime * 1000;
+    timeReadout.textContent = formatTime(ms);
+    scrubber.value = Math.floor(ms);
+  }
+
+  function updatePlayPauseUI(isPlaying) {
+    playPauseBtn.textContent = isPlaying ? '⏸ Pause' : '▶ Abspielen';
+  }
+
+  scrubber.addEventListener('input', () => {
+    playbackVideo.currentTime = scrubber.value / 1000;
+  });
+
+  playbackVideo.addEventListener('timeupdate', updateTimeReadout);
+  playbackVideo.addEventListener('play', () => updatePlayPauseUI(true));
+  playbackVideo.addEventListener('pause', () => updatePlayPauseUI(false));
+  playbackVideo.addEventListener('ended', () => updatePlayPauseUI(false));
+
+  playPauseBtn.addEventListener('click', () => {
+    if (playbackVideo.paused) playbackVideo.play();
+    else playbackVideo.pause();
+  });
+
+  function stepFrame(direction) {
+    playbackVideo.pause();
+    updatePlayPauseUI(false);
+    const newTime = playbackVideo.currentTime + direction * frameStepSec;
+    playbackVideo.currentTime = Math.max(0, Math.min(playbackVideo.duration || 0, newTime));
+  }
+
+  backBtn.addEventListener('click', () => stepFrame(-1));
+  fwdBtn.addEventListener('click', () => stepFrame(1));
+  backBigBtn.addEventListener('click', () => {
+    playbackVideo.pause();
+    updatePlayPauseUI(false);
+    playbackVideo.currentTime = Math.max(0, playbackVideo.currentTime - 10 * frameStepSec);
+  });
+  fwdBigBtn.addEventListener('click', () => {
+    playbackVideo.pause();
+    updatePlayPauseUI(false);
+    playbackVideo.currentTime = Math.min(playbackVideo.duration || 0, playbackVideo.currentTime + 10 * frameStepSec);
+  });
+
+  // ---------- Download ----------
+  downloadBtn.addEventListener('click', () => {
+    if (!recordedBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = recordedBlobUrl;
+    const ext = (mediaRecorder.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    a.download = 'sprint-aufnahme-' + Date.now() + '.' + ext;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+
+  // ---------- Restart ----------
+  function resetToLive() {
+    if (recordedBlobUrl) URL.revokeObjectURL(recordedBlobUrl);
+    recordedBlobUrl = null;
+    marks = [];
+    document.querySelectorAll('.mark-tick').forEach(el => el.remove());
+
+    playbackVideo.pause();
+    playbackVideo.removeAttribute('src');
+    playbackVideo.load();
+    playbackVideo.style.display = 'none';
+    liveVideo.style.display = 'block';
+    clockOverlay.textContent = '00:00.000';
+
+    resultControls.style.display = 'none';
+    playbackControls.classList.remove('visible');
+    marksPanel.classList.remove('visible');
+    liveControls.style.display = 'grid';
+    recordingControls.style.display = 'none';
+  }
+
+  // ---------- Events ----------
+  startBtn.addEventListener('click', startRecording);
+  markBtn.addEventListener('click', addMark);
+  stopBtn.addEventListener('click', stopRecording);
+  restartBtn.addEventListener('click', resetToLive);
+
+  initCamera();
+})();
+</script>
+</body>
+</html>
